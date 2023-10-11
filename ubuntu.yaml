@@ -1,0 +1,84 @@
+---
+- name: Updating all packages on Ubuntu / Debian Linux Servers
+  hosts: web
+  become: true
+  become_user: root
+  tasks:
+    - name: remove dpkg lock file
+      file:
+        state: absent
+        path: "/var/lib/dpkg/lock"
+
+    - name: remove dpkg lock-frontend file
+      file:
+        state: absent
+        path: "/var/lib/dpkg/lock-frontend"
+
+    - name: remove apt archives lock file
+      file:
+        state: absent
+        path: "/var/cache/apt/archives/lock"
+
+    - name: Update apt repo and package cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+        cache_valid_time: 3600
+
+    - name: Remove dependencies that are no longer required.
+      ansible.builtin.apt:
+        autoremove: yes
+
+    - name: To install Aptitude Package
+      register: aptitude
+      command: "apt-get install aptitude -y"
+
+    - debug:
+        var: aptitude.stdout_lines
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        force_apt_get: yes
+
+    - name: Execute the Safe-Upgrade command
+      register: safeupgrade
+      command: "aptitude safe-upgrade -y"
+
+    - debug:
+        var: safeupgrade.stdout_lines
+
+    - name: Remove dependencies that are no longer required.
+      ansible.builtin.apt:
+        autoremove: yes
+
+    - name: Update apt repo and package cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+        cache_valid_time: 3600
+
+    - name: Check if a reboot is needed on all servers
+      register: reboot_required_file_existence
+      stat: path=/var/run/reboot-required get_md5=no
+
+    - name: Reboot servers if kernel is updated
+      reboot:
+        msg: "Rebooting the servers after applying Kernel Updates"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+      when: reboot_required_file_existence.stat.exists
+
+    - name: check if all the systems responding to ssh
+      local_action:
+        module: wait_for
+          host={{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}
+          port=22
+          search_regex=OpenSSH
+          delay=15
+          timeout=300
+          state=started
+
