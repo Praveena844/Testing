@@ -1,0 +1,37 @@
+---
+- name: Apply security patches to RHEL servers
+  hosts: web
+  become: true
+
+  tasks:
+    - name: Ensure all packages are up to date
+      yum:
+        name: '*'
+        state: latest
+        exclude: kernel*
+        update_cache: yes
+
+    - name: Check for available security updates
+      command: yum updateinfo security
+      register: security_updates
+
+    - name: Apply security updates
+      yum:
+        name: '{{ item }}'
+        state: latest
+        security: true
+        update_cache: yes
+      with_items: "{{ security_updates.stdout_lines }}"
+
+    - name: Reboot servers if required by kernel update
+      command: shutdown -r +5 "Server is rebooting for kernel update"
+      async: 0
+      poll: 0
+      ignore_errors: true
+      register: reboot_required
+      when: "'kernel' in security_updates.stdout"
+
+    - name: Wait for servers to come back online after reboot
+      wait_for_connection:
+        connect_timeout: 5
+      when: reboot_required.changed
